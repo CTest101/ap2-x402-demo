@@ -122,10 +122,8 @@ class _x402TestExecutor(x402ServerExecutor):
 # ── Server fixture ───────────────────────────────────────────────
 
 
-def _get_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+# 固定端口用于集成测试，避免每次随机
+A2A_TEST_PORT = 19402
 
 
 def _build_app(host: str, port: int) -> Starlette:
@@ -175,7 +173,7 @@ def _build_app(host: str, port: int) -> Starlette:
 def a2a_server():
     """Start a real A2A HTTP server in a background thread."""
     host = "127.0.0.1"
-    port = _get_free_port()
+    port = A2A_TEST_PORT
     app = _build_app(host, port)
 
     config = uvicorn.Config(app, host=host, port=port, log_level="warning")
