@@ -43,145 +43,126 @@
 └──────────────────────────────────────────────────┘
 ```
 
-## x402 v2 Key Features / v2 协议特性
-
-| Feature | v1 | v2 |
-|---------|----|----|
-| Network identifier | `"base-sepolia"` | CAIP-2: `"eip155:84532"` |
-| Amount field | `maxAmountRequired` | `amount` |
-| Resource | flat string | structured `{ url, description, mimeType }` |
-| Extensions | N/A | `extensions` field for protocol扩展 |
-| Version field | implicit | explicit `x402Version: 2` |
-
-本 demo 全部使用 **x402 v2** 格式，通过 CAIP-2 chain identifiers 实现跨链兼容。
-
 ## Prerequisites / 前置要求
 
 - **Python 3.13+**
 - **[uv](https://docs.astral.sh/uv/)** — Python package manager
-- **Google Gemini API Key** — 用于 Client Agent 和 Merchant Agent 的 LLM 调用
+- **Google Gemini API Key** — 用于 Client Agent 和 Merchant Agent 的 LLM 调用（仅 `run_all.sh` 完整启动需要；集成测试不需要）
 
 ## Quick Start / 快速开始
 
+### 在新机器上安装和运行
+
 ```bash
-# 1. 安装依赖
+# 1. Clone
+git clone https://github.com/CTest101/ap2-x402-demo.git
+cd ap2-x402-demo
+
+# 2. 安装依赖（自动检查 Python 版本 + uv）
 bash scripts/setup.sh
 
-# 2. 编辑 .env，填入 Gemini API Key
-vim .env
+# 3. 运行集成测试（不需要 API Key，不需要启动任何服务）
+uv run pytest tests/ -v
+```
 
-# 3. 启动所有服务
+### 运行集成测试（推荐先跑这个验证环境）
+
+集成测试自动启动一个真实 A2A HTTP server（端口 `19402`），无需手动启动任何服务，也不需要 LLM API Key：
+
+```bash
+# 运行全部 27 个测试
+uv run pytest tests/ -v
+
+# 仅运行 A2A HTTP 集成测试（4 tests，真实 HTTP 调用）
+uv run pytest tests/test_a2a_integration.py -v
+
+# 仅运行组件测试（15 tests，直接 Python 调用）
+uv run pytest tests/test_e2e.py -v
+
+# 仅运行 Wallet 单元测试（8 tests）
+uv run pytest tests/test_wallet.py -v
+```
+
+### 启动完整 Demo（需要 Gemini API Key）
+
+```bash
+# 1. 编辑 .env，填入 Gemini API Key
+cp .env.example .env
+vim .env  # 填写 GOOGLE_API_KEY=
+
+# 2. 启动所有 3 个服务
 bash scripts/run_all.sh
 ```
 
-启动后访问:
-- **Client Web UI**: http://localhost:8000
-- **Merchant Agent**: http://localhost:8002
-- **Wallet Service**: http://localhost:5001
+启动后：
+- **Client Web UI**: http://localhost:8000 — 在此输入 "buy a laptop" 触发支付流程
+- **Merchant Agent**: http://localhost:8002 — A2A Server
+- **Wallet Service**: http://localhost:5001 — EIP-3009 签名服务
 
-在 Web UI 中输入 "I want to buy a laptop" 即可触发完整支付流程。
+### 单独启动 Merchant A2A Server（用于外部 Client 对接）
+
+```bash
+# 启动 Merchant Server（不需要 Gemini API Key，使用 ScriptedExecutor 模式可跳过 LLM）
+uv run python -m merchant --port 8002
+
+# AgentCard 发现端点
+curl http://localhost:8002/agents/merchant_agent/.well-known/agent-card.json
+
+# 发送 A2A JSON-RPC 请求
+curl -X POST http://localhost:8002/agents/merchant_agent \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "message/send",
+    "params": {
+      "message": {
+        "role": "user",
+        "messageId": "test-001",
+        "parts": [{"kind": "text", "text": "buy a banana"}]
+      }
+    }
+  }'
+```
 
 ## Payment Flow / 支付流程
 
 ```
 User → "buy a laptop"
   │
-  ▼
-Step 1: Client Agent 发现 Merchant Agent (A2A AgentCard)
-  │
-  ▼
-Step 2: Merchant Agent 调用 get_product_and_request_payment("laptop")
-         → 抛出 x402PaymentRequiredException (含 PaymentRequirements)
-         → x402MerchantExecutor 捕获，返回 input_required task + x402 metadata
-  │
-  ▼
-Step 3: Client Agent 收到 payment_required
-         → 提取价格信息，向用户确认 "Pay 50000 USDC?"
-         → 用户确认 → 调用 Wallet Service /sign 签名
-         → EIP-712 / EIP-3009 transferWithAuthorization 签名
-  │
-  ▼
-Step 4: Client Agent 发送签名后的 PaymentPayload 给 Merchant
-         → x402MerchantExecutor 调用 Facilitator.verify() 验证签名
-         → 调用 Facilitator.settle() 结算交易
-  │
-  ▼
-Step 5: Merchant Agent 收到支付成功通知
-         → before_agent_callback 注入虚拟 tool response
-         → LLM 确认购买成功，返回结果给用户
+  ▼ Step 1: Client Agent 发现 Merchant Agent (A2A AgentCard)
+  ▼ Step 2: Merchant 调用 tool → 抛出 x402PaymentRequiredException
+  ▼         → x402MerchantExecutor 返回 input_required + payment metadata
+  ▼ Step 3: Client 收到 payment_required → 提取价格 → 确认 → Wallet 签名
+  ▼         → EIP-712 / EIP-3009 transferWithAuthorization
+  ▼ Step 4: Client 发送 PaymentPayload → Facilitator verify + settle
+  ▼ Step 5: Merchant 确认支付成功 → 返回结果
 ```
-
-## Project Structure / 项目结构
-
-```
-ap2-x402-demo/
-├── shared/                     # 共享配置和常量
-│   ├── __init__.py
-│   ├── constants.py            # CAIP-2 网络, USDC 地址, 协议版本
-│   └── config.py               # .env 配置加载
-├── wallet/                     # Wallet Service (Flask :5001)
-│   ├── __init__.py
-│   └── server.py               # EIP-712/EIP-3009 签名服务
-├── merchant/                   # Merchant Agent (Starlette :8002)
-│   ├── __init__.py
-│   ├── __main__.py             # 服务启动入口
-│   ├── agent.py                # MerchantAgent — ADK LlmAgent 定义
-│   ├── executor.py             # ADKAgentExecutor — ADK↔A2A 桥接
-│   ├── x402_executor.py        # x402MerchantExecutor — 支付流程编排
-│   └── facilitator.py          # MockFacilitator / LocalFacilitator
-├── client/                     # Client Agent (ADK Web UI :8000)
-│   ├── __init__.py             # Root agent 入口
-│   ├── client_agent.py         # ClientAgent — 编排器
-│   ├── wallet_client.py        # Wallet 接口 (Remote/Local)
-│   ├── remote_connection.py    # A2A 远程连接封装
-│   └── task_store.py           # 客户端 Task 状态管理
-├── tests/                      # 测试套件
-│   ├── test_wallet.py          # Wallet 签名测试 (17 tests)
-│   └── test_e2e.py             # E2E 支付流程测试 (23 tests)
-├── scripts/
-│   ├── setup.sh                # 环境初始化
-│   └── run_all.sh              # 启动所有服务
-├── .env.example                # 环境变量模板
-├── pyproject.toml              # 项目元数据和依赖
-├── LICENSE                     # Apache 2.0
-└── README.md
-```
-
-## Configuration / 配置
-
-`.env` 文件中的配置项:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `GOOGLE_API_KEY` | Gemini API Key (required) | — |
-| `WALLET_PRIVATE_KEY` | 钱包私钥 (仅用于 demo) | `0x000...001` |
-| `MERCHANT_WALLET_ADDRESS` | 商户收款地址 | `0xAb58...9B` |
-| `RPC_URL` | Base Sepolia RPC | `https://sepolia.base.org` |
-| `WALLET_SERVICE_PORT` | Wallet Service 端口 | `5001` |
-| `MERCHANT_SERVICE_PORT` | Merchant Agent 端口 | `8002` |
-| `CLIENT_SERVICE_PORT` | Client Agent 端口 | `8000` |
-| `USE_MOCK_FACILITATOR` | 使用 Mock Facilitator | `true` |
-| `WALLET_SERVICE_URL` | Wallet Service URL | `http://localhost:5001` |
-| `USE_REMOTE_WALLET` | 使用远程钱包签名 | `true` |
 
 ## Testing / 测试
 
-```bash
-# 运行所有测试
-uv run pytest tests/ -v
+### 测试类型
 
-# 仅运行 wallet 测试
-uv run pytest tests/test_wallet.py -v
+| 文件 | 类型 | 测试数 | 真实 HTTP? | 需要 LLM? | 需要 API Key? |
+|------|------|-------|-----------|----------|-------------|
+| `test_a2a_integration.py` | A2A 集成 | 4 | ✅ uvicorn :19402 | ❌ | ❌ |
+| `test_e2e.py` | 组件集成 | 15 | ❌ 直接调用 | ❌ | ❌ |
+| `test_wallet.py` | 单元 | 8 | Flask test client | ❌ | ❌ |
+| **合计** | | **27** | | | |
 
-# 仅运行 E2E 测试
-uv run pytest tests/test_e2e.py -v
-```
+### A2A 集成测试详情
 
-测试覆盖:
-- **test_wallet.py** (17 tests): 签名逻辑、API 端点、EIP-712 结构、CAIP-2 解析
-- **test_e2e.py** (23 tests): 完整支付流程、Facilitator 验证/结算、metadata 流转
+`test_a2a_integration.py` 启动一个**真实 A2A HTTP server**（端口 `19402`），使用 `ScriptedMerchantExecutor`（无 LLM，预定义行为），完整走通 x402 中间件链路：
 
-所有测试使用 MockFacilitator，无需真实区块链或 LLM 调用。
+- `test_agent_card_endpoint` — AgentCard 发现 (GET /.well-known/agent-card.json)
+- `test_initial_message_returns_payment_required` — 首次请求 → 402 支付要求
+- `test_full_payment_flow_over_http` — 完整 3 步支付闭环 over HTTP
+- `test_payment_artifacts_present` — 验证结算后 artifacts 内容
+
+### 测试报告
+
+详细的端到端测试报告（含时序图、请求/响应数据、覆盖矩阵）见：
+[docs/reports/e2e-test-report.md](docs/reports/e2e-test-report.md)
 
 ## x402 v1 → v2 Differences / 版本差异
 
@@ -192,18 +173,61 @@ uv run pytest tests/test_e2e.py -v
 | Resource | 单一 URL 字符串 | `{ url, description, mimeType }` 对象 |
 | Version | 隐式 | 显式 `x402Version: 2` |
 | Extensions | 不支持 | `extensions` 字段 |
-| PaymentPayload | `{ signature, authorization }` | `{ x402Version, scheme, network, resource, accepted, payload }` |
-| Agent discovery | — | A2A AgentCard + `x402` extension declaration |
+| PaymentPayload | `{ scheme, network, payload }` | `{ x402Version, resource, accepted, payload }` |
 
-## References / 参考链接
+## Project Structure / 项目结构
 
-- [x402 Protocol](https://www.x402.org/) — x402 支付协议规范
-- [A2A Protocol](https://github.com/google/A2A) — Google Agent-to-Agent 协议
-- [Google ADK](https://google.github.io/adk-docs/) — Agent Development Kit
-- [EIP-712](https://eips.ethereum.org/EIPS/eip-712) — Typed structured data hashing and signing
-- [EIP-3009](https://eips.ethereum.org/EIPS/eip-3009) — Transfer With Authorization
-- [CAIP-2](https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-2.md) — Blockchain ID specification
-- [USDC on Base Sepolia](https://sepolia.basescan.org/token/0x036CbD53842c5426634e7929541eC2318f3dCF7e)
+```
+ap2-x402-demo/
+├── shared/                     # 共享配置和常量
+│   ├── constants.py            # CAIP-2 网络, USDC 地址, 协议版本
+│   └── config.py               # .env 配置加载
+├── wallet/
+│   └── server.py               # Flask Wallet Service (:5001)
+├── merchant/
+│   ├── __main__.py             # Starlette server 启动入口 (:8002)
+│   ├── agent.py                # MerchantAgent (ADK LlmAgent)
+│   ├── executor.py             # ADKAgentExecutor (ADK↔A2A 桥接)
+│   ├── x402_executor.py        # x402MerchantExecutor (支付中间件)
+│   └── facilitator.py          # MockFacilitator / LocalFacilitator
+├── client/
+│   ├── agent.py                # root_agent (ADK Web UI 入口)
+│   ├── client_agent.py         # ClientAgent 编排器
+│   ├── wallet_client.py        # Wallet 接口 (Remote/Local)
+│   ├── remote_connection.py    # A2A 远程连接
+│   └── task_store.py           # Task 状态管理
+├── tests/
+│   ├── test_a2a_integration.py # A2A HTTP 集成测试 (4 tests)
+│   ├── test_e2e.py             # 组件集成测试 (15 tests)
+│   └── test_wallet.py          # Wallet 单元测试 (8 tests)
+├── docs/reports/
+│   └── e2e-test-report.md      # 详细测试报告
+├── scripts/
+│   ├── setup.sh                # 环境初始化
+│   └── run_all.sh              # 启动所有服务
+├── .env.example                # 环境变量模板
+├── pyproject.toml
+└── LICENSE                     # Apache 2.0
+```
+
+## Configuration / 配置
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `GOOGLE_API_KEY` | Gemini API Key (完整 demo 需要) | — |
+| `WALLET_PRIVATE_KEY` | Buyer 钱包私钥 (仅测试用) | x402-local-lab key |
+| `MERCHANT_WALLET_ADDRESS` | Merchant 收款地址 | `0x92F6...ff24` |
+| `RPC_URL` | Base Sepolia RPC | `https://sepolia.base.org` |
+| `USE_MOCK_FACILITATOR` | 使用 Mock Facilitator | `true` |
+
+## References / 参考
+
+- [x402 Protocol Specification v2](https://github.com/coinbase/x402/blob/main/specs/x402-specification-v2.md)
+- [A2A x402 Extension v0.2](https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2/spec.md)
+- [A2A Protocol v1.0.0](https://a2a-protocol.org/latest/specification/)
+- [Google ADK](https://google.github.io/adk-docs/)
+- [EIP-3009](https://eips.ethereum.org/EIPS/eip-3009) / [EIP-712](https://eips.ethereum.org/EIPS/eip-712)
+- [CAIP-2](https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-2.md)
 
 ## License
 
