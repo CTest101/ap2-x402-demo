@@ -8,6 +8,7 @@ Endpoints:
   POST /address — 返回钱包地址
 """
 
+import json
 import os
 import time
 import logging
@@ -16,6 +17,8 @@ from eth_account import Account
 from eth_account.messages import encode_typed_data
 from flask import Flask, jsonify, request
 from dotenv import load_dotenv
+
+from eth_account.messages import encode_defunct
 
 from shared.constants import NETWORK, USDC_ADDRESS, X402_VERSION
 
@@ -170,6 +173,32 @@ def sign():
         return jsonify(payload)
     except Exception as e:
         logger.error(f"Signing failed: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/sign-mandate", methods=["POST"])
+def sign_mandate():
+    """
+    Sign an arbitrary mandate dict (IntentMandate, CartMandate, PaymentMandate, etc.).
+    Uses encode_defunct to create a personal_sign signature.
+    Returns {"signature": "0x...", "address": "0x..."}.
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing request body"}), 400
+
+    try:
+        payload_str = json.dumps(data, sort_keys=True, separators=(",", ":"))
+        message = encode_defunct(text=payload_str)
+        signed = account.sign_message(message)
+        signature = signed.signature.hex()
+        if not signature.startswith("0x"):
+            signature = "0x" + signature
+
+        logger.info(f"Signed mandate (len={len(payload_str)})")
+        return jsonify({"signature": signature, "address": account.address})
+    except Exception as e:
+        logger.error(f"Mandate signing failed: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
