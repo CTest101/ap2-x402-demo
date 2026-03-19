@@ -11,10 +11,12 @@ from abc import ABC, abstractmethod
 
 import httpx
 import eth_account
-from x402_a2a.types import PaymentPayload, x402PaymentRequiredResponse
+from x402_a2a.types import (
+    PaymentPayload,
+    PaymentRequirements,
+    x402PaymentRequiredResponse,
+)
 from x402_a2a.core.wallet import process_payment_required
-
-from shared.constants import X402_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -44,27 +46,23 @@ class RemoteWallet(Wallet):
         response.raise_for_status()
 
         payload_data = response.json()
-        # wallet service 返回 v2 格式, 但 x402_a2a PaymentPayload 是 v1 model
-        # 需要提取核心字段构建 v1 compatible PaymentPayload
         return self._adapt_v2_to_payload(payload_data, requirements)
 
     def _adapt_v2_to_payload(
         self, v2_data: dict, requirements: x402PaymentRequiredResponse
     ) -> PaymentPayload:
-        """将 wallet service 返回的 v2 payload 适配为 x402_a2a 的 PaymentPayload model。"""
-        accepted = v2_data.get("accepted", {})
+        """将 wallet service 返回的 v2 payload 适配为 x402 PaymentPayload model。"""
+        accepted_data = v2_data.get("accepted", {})
         inner_payload = v2_data.get("payload", {})
 
-        # 构建 x402_a2a 兼容的 PaymentPayload
-        payload_dict = {
-            "scheme": v2_data.get("scheme", accepted.get("scheme", "exact")),
-            "network": v2_data.get("network", accepted.get("network", "")),
-            "payload": {
-                "signature": inner_payload.get("signature", ""),
-                "authorization": inner_payload.get("authorization", {}),
-            },
-        }
-        return PaymentPayload.model_validate(payload_dict)
+        # Build accepted PaymentRequirements from the wallet response
+        accepted = PaymentRequirements.model_validate(accepted_data)
+
+        return PaymentPayload(
+            x402_version=v2_data.get("x402Version", 2),
+            payload=inner_payload,
+            accepted=accepted,
+        )
 
 
 class LocalWallet(Wallet):

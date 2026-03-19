@@ -188,8 +188,7 @@ You are a master orchestrator agent. Your job is to complete user requests by de
                 raise ValueError("Server requested payment but sent no valid options.")
 
             option = requirements.accepts[0]
-            # v1 字段 max_amount_required, v2 用 amount — 兼容两者
-            currency_amount = getattr(option, "max_amount_required", None) or getattr(option, "amount", "?")
+            currency_amount = option.amount
             currency_name = option.extra.get("name", "TOKEN") if option.extra else "TOKEN"
             product_name = (
                 option.extra.get("product", {}).get("name", "the item")

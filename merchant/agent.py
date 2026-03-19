@@ -56,14 +56,13 @@ class MerchantAgent:
             network=NETWORK,  # CAIP-2 格式: "eip155:84532"
             asset=USDC_ADDRESS,
             pay_to=self._wallet_address,
-            max_amount_required=price,  # v1 字段名, 在 executor 层映射为 v2 的 "amount"
-            description=f"Payment for: {product_name}",
-            resource=f"https://merchant.example/product/{product_name}",
-            mime_type="application/json",
+            amount=price,  # v2 字段名
             max_timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
             extra={
                 "name": "USDC",
                 "version": "2",
+                "description": f"Payment for: {product_name}",
+                "resource": f"https://merchant.example/product/{product_name}",
                 "product": {
                     "sku": f"{product_name}_sku",
                     "name": product_name,

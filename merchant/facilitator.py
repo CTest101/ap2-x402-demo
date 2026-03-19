@@ -9,7 +9,6 @@ from typing import override
 
 from x402_a2a import FacilitatorClient
 from x402_a2a.types import (
-    ExactPaymentPayload,
     PaymentPayload,
     PaymentRequirements,
     SettleResponse,
@@ -17,6 +16,14 @@ from x402_a2a.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_payer_from_payload(payload: PaymentPayload) -> str | None:
+    """Extract payer address from PaymentPayload.payload dict."""
+    if isinstance(payload.payload, dict):
+        auth = payload.payload.get("authorization", {})
+        return auth.get("from")
+    return None
 
 
 class MockFacilitator(FacilitatorClient):
@@ -36,11 +43,7 @@ class MockFacilitator(FacilitatorClient):
         logger.info("--- MOCK FACILITATOR: VERIFY ---")
         logger.info(f"Payload:\n{payload.model_dump_json(indent=2)}")
 
-        payer = None
-        if isinstance(payload.payload, ExactPaymentPayload):
-            payer = payload.payload.authorization.from_
-        else:
-            raise TypeError(f"Unsupported payload type: {type(payload.payload)}")
+        payer = _extract_payer_from_payload(payload)
 
         if self._is_valid:
             return VerifyResponse(is_valid=True, payer=payer)
@@ -53,8 +56,17 @@ class MockFacilitator(FacilitatorClient):
         """模拟支付结算。"""
         logger.info("--- MOCK FACILITATOR: SETTLE ---")
         if self._is_settled:
-            return SettleResponse(success=True, network="mock-network")
-        return SettleResponse(success=False, error_reason="mock_settlement_failed")
+            return SettleResponse(
+                success=True,
+                network=requirements.network,
+                transaction="0xmock_tx_hash",
+            )
+        return SettleResponse(
+            success=False,
+            error_reason="mock_settlement_failed",
+            network=requirements.network,
+            transaction="",
+        )
 
 
 class LocalFacilitator(FacilitatorClient):
@@ -69,9 +81,7 @@ class LocalFacilitator(FacilitatorClient):
     ) -> VerifyResponse:
         # TODO: 接入 web3 链上验证
         logger.info("--- LOCAL FACILITATOR: VERIFY (stub) ---")
-        payer = None
-        if isinstance(payload.payload, ExactPaymentPayload):
-            payer = payload.payload.authorization.from_
+        payer = _extract_payer_from_payload(payload)
         return VerifyResponse(is_valid=True, payer=payer)
 
     @override
@@ -80,4 +90,8 @@ class LocalFacilitator(FacilitatorClient):
     ) -> SettleResponse:
         # TODO: 接入 web3 链上结算
         logger.info("--- LOCAL FACILITATOR: SETTLE (stub) ---")
-        return SettleResponse(success=True, network="eip155:84532")
+        return SettleResponse(
+            success=True,
+            network=requirements.network,
+            transaction="0xlocal_tx_hash",
+        )

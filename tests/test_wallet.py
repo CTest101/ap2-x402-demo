@@ -14,8 +14,7 @@ from shared.constants import NETWORK, USDC_ADDRESS, X402_VERSION
 def client():
     """Flask test client."""
     app.config["TESTING"] = True
-    with app.test_client() as client:
-        yield client
+    yield app.test_client()
 
 
 class TestSignEndpoint:
