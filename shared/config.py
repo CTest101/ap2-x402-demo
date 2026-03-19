@@ -11,11 +11,11 @@ def load_config() -> dict:
         "google_api_key": os.getenv("GOOGLE_API_KEY", ""),
         "wallet_private_key": os.getenv(
             "WALLET_PRIVATE_KEY",
-            "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "0x39e7972056220aba339638c79a0785da96a98c3ec41aeea5ec5e5643fdc9df6b",
         ),
         "merchant_wallet_address": os.getenv(
             "MERCHANT_WALLET_ADDRESS",
-            "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B",
+            "0x92F6E9deBbEb778a245916Cf52DD7F54429Fff24",
         ),
         "rpc_url": os.getenv("RPC_URL", "https://sepolia.base.org"),
         "wallet_service_port": int(os.getenv("WALLET_SERVICE_PORT", "5001")),

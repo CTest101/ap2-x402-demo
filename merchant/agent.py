@@ -4,6 +4,7 @@ Merchant Agent — ADK LlmAgent 定义。
 由 x402_executor 层捕获并处理 A2A 支付流程。
 """
 
+import os
 import hashlib
 
 from google.adk.agents import LlmAgent
@@ -27,8 +28,10 @@ class MerchantAgent:
     商户 Agent：接收购买请求，返回商品价格并触发 x402 支付流程。
     """
 
-    def __init__(self, wallet_address: str = "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B"):
-        self._wallet_address = wallet_address
+    def __init__(self, wallet_address: str | None = None):
+        self._wallet_address = wallet_address or os.getenv(
+            "MERCHANT_WALLET_ADDRESS", "0x92F6E9deBbEb778a245916Cf52DD7F54429Fff24"
+        )
 
     def _get_product_price(self, product_name: str) -> str:
         """根据商品名称生成确定性价格 (单位: 最小精度, USDC 6位小数)。"""
