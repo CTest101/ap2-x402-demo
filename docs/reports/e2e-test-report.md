@@ -7,7 +7,7 @@
 - Facilitator：MockFacilitator（本地模拟）
 - Buyer 地址：`0x92F6E9deBbEb778a245916Cf52DD7F54429Fff24`
 - Merchant payTo：`0x92F6E9deBbEb778a245916Cf52DD7F54429Fff24`（测试用同地址）
-- 总耗时：1.15s，23 tests 全部通过
+- 总耗时：1.61s，27 tests 全部通过（23 unit + 4 integration）
 
 ---
 
@@ -172,18 +172,30 @@ A2A Task metadata 状态机转换：
 
 ## 3) 测试覆盖矩阵
 
-| 测试文件 | 测试类 | 测试数 | 覆盖范围 |
-|---------|-------|-------|---------|
-| `test_e2e.py` | TestPaymentRequirementsCreation | 3 | Merchant 工具、价格确定性、空输入 |
-| `test_e2e.py` | TestWalletSigning | 2 | Wallet Service 签名、本地签名 |
-| `test_e2e.py` | TestFacilitator | 3 | MockFacilitator verify/settle、失败路径 |
-| `test_e2e.py` | TestX402MetadataFlow | 2 | A2A metadata 创建、receipts 记录 |
-| `test_e2e.py` | TestE2EPaymentFlow | 3 | 全流程、Wallet 集成、metadata roundtrip |
-| `test_e2e.py` | TestWalletServiceStandalone | 2 | Flask 服务签名、地址接口 |
-| `test_wallet.py` | TestSignEndpoint | 4 | /sign v2 格式、accepts 数组、错误处理 |
-| `test_wallet.py` | TestAddressEndpoint | 2 | /address GET/POST |
-| `test_wallet.py` | TestSignLogic | 2 | 签名结构验证、CAIP-2 解析 |
-| **合计** | | **23** | |
+| 测试文件 | 测试类 | 测试数 | 类型 | 覆盖范围 |
+|---------|-------|-------|------|---------|
+| `test_e2e.py` | TestPaymentRequirementsCreation | 3 | Unit | Merchant 工具、价格确定性、空输入 |
+| `test_e2e.py` | TestWalletSigning | 2 | Unit | Wallet Service 签名、本地签名 |
+| `test_e2e.py` | TestFacilitator | 3 | Unit | MockFacilitator verify/settle、失败路径 |
+| `test_e2e.py` | TestX402MetadataFlow | 2 | Unit | A2A metadata 创建、receipts 记录 |
+| `test_e2e.py` | TestE2EPaymentFlow | 3 | Unit | 全流程（直接调用，无 HTTP） |
+| `test_e2e.py` | TestWalletServiceStandalone | 2 | Unit | Flask 服务签名、地址接口 |
+| `test_wallet.py` | TestSignEndpoint | 4 | Unit | /sign v2 格式、accepts 数组、错误处理 |
+| `test_wallet.py` | TestAddressEndpoint | 2 | Unit | /address GET/POST |
+| `test_wallet.py` | TestSignLogic | 2 | Unit | 签名结构验证、CAIP-2 解析 |
+| `test_a2a_integration.py` | TestA2AIntegration | 4 | **Integration** | 真实 A2A HTTP 服务器 + x402 中间件全链路 |
+| **合计** | | **27** | | |
+
+### Integration 测试说明
+
+`test_a2a_integration.py` 启动真实 A2A HTTP 服务器（Starlette + uvicorn），使用 `ScriptedMerchantExecutor`（无 LLM）替代 ADKAgentExecutor，通过 JSON-RPC over HTTP 发送请求，验证完整 x402 支付中间件链路：
+
+| 测试 | 验证内容 |
+|------|---------|
+| `test_initial_message_returns_payment_required` | 首次 message/send → Task input-required + x402 payment metadata |
+| `test_full_payment_flow_over_http` | 完整 3 步流程：请求→签名→提交支付，全部通过真实 HTTP |
+| `test_agent_card_endpoint` | .well-known/agent-card.json 端点返回有效 AgentCard |
+| `test_payment_artifacts_present` | 支付完成后 Task 包含商户 artifacts（订单确认） |
 
 ---
 
@@ -201,10 +213,10 @@ A2A Task metadata 状态机转换：
 ## 5) 运行结果
 
 ```
-======================== 23 passed, 2 warnings in 1.15s ========================
+======================== 27 passed, 3 warnings in 1.61s ========================
 ```
 
-全部通过 ✅
+全部通过 ✅（23 unit + 4 integration）
 
 Warnings（不影响功能）：
 - `google.genai.types`: `_UnionGenericAlias` deprecated in Python 3.17
