@@ -100,9 +100,47 @@ def create_payment_mandate(
         merchant_agent=merchant_agent,
     )
 
+    # PaymentMandate 创建时 user_authorization 为 None，需要后续调用 sign_payment_mandate 签名
     return PaymentMandate(
         payment_mandate_contents=payment_mandate_contents,
     )
+
+
+async def sign_payment_mandate(
+    payment_mandate: PaymentMandate,
+    wallet_service_url: str,
+) -> PaymentMandate:
+    """Sign a PaymentMandate via wallet service, filling user_authorization.
+
+    Args:
+        payment_mandate: The unsigned PaymentMandate.
+        wallet_service_url: Base URL of the wallet service.
+
+    Returns:
+        PaymentMandate with user_authorization field set.
+    """
+    mandate_dict = payment_mandate.model_dump(by_alias=True)
+    sig_data = await sign_mandate(mandate_dict, wallet_service_url)
+    payment_mandate.user_authorization = sig_data["signature"]
+    return payment_mandate
+
+
+async def sign_cart_mandate_as_merchant(
+    cart_mandate_dict: dict,
+    wallet_service_url: str,
+) -> dict:
+    """Sign a CartMandate as merchant, filling merchant_authorization.
+
+    Args:
+        cart_mandate_dict: The CartMandate dict to sign.
+        wallet_service_url: Base URL of the wallet service.
+
+    Returns:
+        CartMandate dict with merchant_authorization filled.
+    """
+    sig_data = await sign_mandate(cart_mandate_dict, wallet_service_url)
+    cart_mandate_dict["merchant_authorization"] = sig_data["signature"]
+    return cart_mandate_dict
 
 
 async def sign_mandate(mandate_dict: dict, wallet_service_url: str) -> dict:

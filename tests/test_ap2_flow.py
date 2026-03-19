@@ -251,6 +251,11 @@ class TestFullAP2Flow:
             signed_payload=payload_dict,
             merchant_agent="merchant_agent",
         )
+        # PaymentMandate 创建后 user_authorization 为 None
+        assert pm.user_authorization is None
+
+        # 注意: 完整流程中应调用 sign_payment_mandate(pm, wallet_url) 签名
+        # 这里跳过签名步骤（因为 MockFacilitator 不验证 mandate 签名）
         pm_dict = pm.model_dump(by_alias=True)
 
         # 6. Merchant extracts and verifies x402 payment
@@ -311,3 +316,39 @@ class TestMandateSigning:
 
         assert "signature" in result
         assert result["signature"].startswith("0x")
+
+    @pytest.mark.asyncio
+    async def test_sign_payment_mandate(self, wallet_server, test_account):
+        """Sign a PaymentMandate — user_authorization should be filled."""
+        from ap2_flow.client import sign_payment_mandate
+
+        # Build a cart + payment mandate
+        cart = create_cart_mandate(
+            product_name="shoes",
+            price="50000",
+            wallet_address=MERCHANT_WALLET,
+        )
+        cart_dict = cart.model_dump(by_alias=True)
+        x402_data = extract_x402_from_payment_request(
+            cart_dict["contents"]["payment_request"]
+        )
+        req_dict = x402_data["accepts"][0]
+        requirements = PaymentRequirements.model_validate(req_dict)
+        signed_payload = process_payment(requirements, test_account)
+        payload_dict = signed_payload.model_dump(mode="json", by_alias=True)
+
+        pm = create_payment_mandate(
+            cart_mandate_dict=cart_dict,
+            signed_payload=payload_dict,
+        )
+        # Before signing: user_authorization is None
+        assert pm.user_authorization is None
+
+        # Sign the PaymentMandate
+        signed_pm = await sign_payment_mandate(pm, wallet_server)
+
+        # After signing: user_authorization is set
+        assert signed_pm.user_authorization is not None
+        assert signed_pm.user_authorization.startswith("0x")
+        # The mandate contents should still be intact
+        assert signed_pm.payment_mandate_contents.payment_response.method_name == "https://www.x402.org/"
